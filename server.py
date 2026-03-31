@@ -42,6 +42,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Route Modules — ALL 8 SECTIONS ───────────────────────────────────────────
+# MUST be imported and included BEFORE app.mount() at the bottom of this file.
+# Any router included AFTER the static mount will 404 silently.
+from routes.chat import router as chat_router
+from routes.builder import builder_router
+from routes.career import career_router
+from routes.creative import router as creative_router
+from routes.cards import router as cards_router
+from routes.realestate import router as realestate_router
+from routes.launchpad import router as launchpad_router
+from routes.profile import router as profile_router
+
+app.include_router(chat_router)
+app.include_router(builder_router)
+app.include_router(career_router)
+app.include_router(creative_router)
+app.include_router(cards_router)
+app.include_router(realestate_router)
+app.include_router(launchpad_router)
+app.include_router(profile_router)
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 SAL_GATEWAY_KEY = os.environ.get("SAL_GATEWAY_KEY", "saintvision_gateway_2025")
@@ -1128,182 +1149,8 @@ async def marketing_daily_content(request: Request):
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 5: LAUNCH PAD — BUSINESS FORMATION
+# All routes handled by routes/launchpad.py (included via app.include_router above)
 # ══════════════════════════════════════════════════════════════════════════════
-
-@app.post("/api/launchpad/name-check")
-async def launchpad_name_check(request: Request):
-    """Simultaneous name availability check — GoDaddy + FileForms + trademark."""
-    verify_sal_key(request)
-    body = await request.json()
-    business_name = body.get("business_name", "")
-    state = body.get("state", "CA")
-
-    results = {"business_name": business_name, "state": state}
-
-    # Domain check via GoDaddy
-    domain_results = []
-    if GODADDY_API_KEY:
-        tlds = [".com", ".io", ".ai", ".co"]
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                for tld in tlds:
-                    domain = f"{business_name.lower().replace(' ', '')}{tld}"
-                    res = await client.get(
-                        f"https://api.godaddy.com/v1/domains/available?domain={domain}",
-                        headers={"Authorization": f"sso-key {GODADDY_API_KEY}:{GODADDY_API_SECRET}"},
-                    )
-                    data = res.json()
-                    domain_results.append({
-                        "name": domain,
-                        "available": data.get("available", False),
-                        "price": data.get("price", 0) / 1000000 if data.get("price") else 0,
-                    })
-        except Exception:
-            pass
-
-    results["domains"] = domain_results
-
-    # Trademark search via Exa
-    trademark_results = await call_exa(f'"{business_name}" trademark registered USPTO', num_results=3)
-    results["trademark_conflicts"] = [{"title": r.get("title"), "url": r.get("url")} for r in trademark_results]
-
-    # Social handle availability
-    results["social_handles"] = {
-        "instagram": f"@{business_name.lower().replace(' ', '')}",
-        "twitter": f"@{business_name.lower().replace(' ', '')}",
-        "linkedin": f"/{business_name.lower().replace(' ', '-')}",
-    }
-
-    return results
-
-
-@app.post("/api/launchpad/entity-advisor")
-async def launchpad_entity_advisor(request: Request):
-    """AI entity type recommendation."""
-    verify_sal_key(request)
-    body = await request.json()
-
-    content = ""
-    async for chunk in stream_claude(
-        [{"role": "user", "content": f"Recommend the best business entity type for: {json.dumps(body)}"}],
-        "You are a business attorney and CPA. Recommend the optimal entity type considering liability, taxes, funding plans, and operations. Be specific with state recommendations.",
-        model="claude-opus-4-6"
-    ):
-        content += chunk
-
-    return {"recommendation": content, "recommended_entity": "LLC", "state": body.get("state", "Delaware")}
-
-
-@app.post("/api/launchpad/domain/purchase")
-async def launchpad_domain_purchase(request: Request):
-    """Domain purchase via GoDaddy + Stripe checkout."""
-    verify_sal_key(request)
-    body = await request.json()
-    domain = body.get("domain", "")
-
-    if not GODADDY_API_KEY:
-        return {"error": "Domain registration not configured"}
-
-    # TODO: GoDaddy domain purchase API + Stripe checkout
-    return {"domain": domain, "status": "checkout_required", "message": f"Initiating purchase for {domain}"}
-
-
-@app.post("/api/launchpad/entity/form")
-async def launchpad_entity_form(request: Request):
-    """Entity formation via FileForms."""
-    verify_sal_key(request)
-    body = await request.json()
-
-    if not FILEFORMS_API_KEY:
-        return {"error": "Entity formation not configured", "status": "unavailable"}
-
-    # TODO: FileForms API integration
-    return {"order_id": str(uuid.uuid4()), "status": "pending", "estimated_completion": "3-5 business days"}
-
-
-@app.post("/api/launchpad/entity/ein")
-async def launchpad_entity_ein(request: Request):
-    """EIN filing via FileForms."""
-    verify_sal_key(request)
-    body = await request.json()
-    return {"ein_status": "submitted", "estimated_date": "2-3 weeks"}
-
-
-@app.post("/api/launchpad/dns/configure")
-async def launchpad_dns_configure(request: Request):
-    """Auto DNS configuration via GoDaddy."""
-    verify_sal_key(request)
-    body = await request.json()
-    domain = body.get("domain", "")
-    target = body.get("target", "vercel")
-
-    # DNS records by target platform
-    records_map = {
-        "vercel": [
-            {"type": "A", "name": "@", "data": "76.76.21.21"},
-            {"type": "CNAME", "name": "www", "data": "cname.vercel-dns.com"},
-        ],
-        "render": [
-            {"type": "CNAME", "name": "www", "data": "your-app.onrender.com"},
-        ],
-        "cloudflare": [
-            {"type": "A", "name": "@", "data": "104.21.0.1"},
-        ],
-    }
-
-    records = records_map.get(target, [])
-    created = []
-
-    if GODADDY_API_KEY and records:
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                res = await client.put(
-                    f"https://api.godaddy.com/v1/domains/{domain}/records",
-                    headers={"Authorization": f"sso-key {GODADDY_API_KEY}:{GODADDY_API_SECRET}"},
-                    json=records,
-                )
-                if res.status_code < 300:
-                    created = records
-        except Exception as e:
-            return {"error": str(e), "records_created": []}
-
-    return {"domain": domain, "target": target, "records_created": created, "propagation_status": "pending (24-48h)"}
-
-
-@app.post("/api/launchpad/ssl/provision")
-async def launchpad_ssl_provision(request: Request):
-    """SSL provisioning."""
-    verify_sal_key(request)
-    body = await request.json()
-    domain = body.get("domain", "")
-    return {"domain": domain, "ssl_status": "provisioning", "expiry_date": "1 year from activation"}
-
-
-@app.post("/api/launchpad/compliance/setup")
-async def launchpad_compliance_setup(request: Request):
-    """Compliance calendar setup with GHL reminders."""
-    verify_sal_key(request)
-    body = await request.json()
-    entity_type = body.get("entity_type", "LLC")
-    state = body.get("state", "CA")
-
-    content = ""
-    async for chunk in stream_claude(
-        [{"role": "user", "content": f"Create a compliance calendar for a {entity_type} in {state}. Include annual reports, tax filings, renewal dates."}],
-        "You are a business compliance expert. Create specific, dated compliance calendars with all deadlines.",
-        model="claude-sonnet-4-6"
-    ):
-        content += chunk
-
-    return {"calendar_events": [], "compliance_guide": content, "entity_type": entity_type, "state": state}
-
-
-@app.post("/api/launchpad/order")
-async def launchpad_order(request: Request):
-    """FileForms formation order (legacy)."""
-    verify_sal_key(request)
-    body = await request.json()
-    return {"order_id": str(uuid.uuid4()), "status": "pending", "message": "Order submitted to FileForms"}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
