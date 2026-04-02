@@ -780,9 +780,11 @@ async def builder_agent_v1(request: Request):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# POST /api/builder/v2/generate — Quick build (no pipeline)
+# POST /api/builder/generate  — Primary alias (what all iOS clients call)
+# POST /api/builder/v2/generate — Same logic, v2 path kept for backwards compat
 # ══════════════════════════════════════════════════════════════════════════════
 
+@builder_router.post("/generate")
 @builder_router.post("/v2/generate")
 async def builder_quick_generate(request: Request):
     """

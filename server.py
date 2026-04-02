@@ -254,7 +254,8 @@ async def call_exa(query: str, num_results: int = 5) -> list:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 1: CORE CHAT ENGINE — 8 INTELLIGENCE VERTICALS
+# SECTION 1: CORE CHAT ENGINE — handled by routes/chat.py (chat_router)
+# POST /api/mcp/chat is registered via app.include_router(chat_router) above.
 # ══════════════════════════════════════════════════════════════════════════════
 
 class ChatRequest(BaseModel):
@@ -267,51 +268,160 @@ class ChatRequest(BaseModel):
     news_prefs: Optional[list] = None
 
 
-@app.post("/api/mcp/chat")
-async def mcp_chat(body: ChatRequest, request: Request):
-    """
-    Main AI chat endpoint — SSE streaming.
-    Routes to 8 intelligence verticals with automatic model selection.
-    Fallback chain: Claude → GPT-5 → Gemini → Grok
-    """
+# ── iOS AI proxy routes (/api/chat/*) ─────────────────────────────────────────
+# These thin proxies are called by the iOS app's streamChat / streamSalChat.
+# They pass the raw SSE bytes from the upstream provider directly to the client
+# so the iOS XHR parser receives provider-native SSE format.
+
+@app.post("/api/chat/anthropic")
+async def chat_anthropic(request: Request):
+    """Thin SSE proxy → Anthropic. Called by iOS streamChat/streamSalChat."""
     verify_sal_key(request)
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(500, "ANTHROPIC_API_KEY not set")
+    body = await request.json()
+    upstream_body = {
+        "model":      body.get("model", "claude-sonnet-4-6"),
+        "max_tokens": body.get("max_tokens", 4096),
+        "system":     body.get("system", "You are SAL, a helpful AI assistant for SaintSal™ Labs."),
+        "messages":   body.get("messages", []),
+        "stream":     True,
+    }
+    async def _proxy():
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "Content-Type":      "application/json",
+                    "x-api-key":         ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                },
+                json=upstream_body,
+            ) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+    return StreamingResponse(_proxy(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    vertical = body.vertical.lower()
-    system_prompt = VERTICAL_SYSTEM_PROMPTS.get(vertical, VERTICAL_SYSTEM_PROMPTS["search"])
-    messages = [{"role": "user", "content": body.message}]
 
-    # Sports and search verticals use web search tools
-    use_search = vertical in ("sports", "search", "finance", "realestate")
-    search_results = []
-    if use_search and (TAVILY_API_KEY or EXA_API_KEY):
-        if TAVILY_API_KEY:
-            search_results = await call_tavily(body.message)
-        elif EXA_API_KEY:
-            search_results = await call_exa(body.message)
+@app.post("/api/chat/xai")
+async def chat_xai(request: Request):
+    """Thin SSE proxy → xAI Grok. Called by iOS streamChat for global/sports."""
+    verify_sal_key(request)
+    if not XAI_API_KEY:
+        raise HTTPException(500, "XAI_API_KEY not set")
+    body = await request.json()
+    msgs = []
+    if body.get("system"):
+        msgs.append({"role": "system", "content": body["system"]})
+    msgs.extend(body.get("messages", []))
+    upstream_body = {
+        "model":      body.get("model", "grok-3-mini"),
+        "max_tokens": body.get("max_tokens", 4096),
+        "messages":   msgs,
+        "stream":     True,
+    }
+    async def _proxy():
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                "https://api.x.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {XAI_API_KEY}",
+                    "Content-Type":  "application/json",
+                },
+                json=upstream_body,
+            ) as resp:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+    return StreamingResponse(_proxy(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-        if search_results:
-            search_context = "\n\n".join([
-                f"Source: {r.get('url', '')}\n{r.get('content', r.get('text', ''))[:500]}"
-                for r in search_results[:3]
-            ])
-            system_prompt += f"\n\nCurrent data from web search:\n{search_context}"
 
-    async def generate():
-        try:
-            async for chunk in stream_claude(messages, system_prompt):
-                yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-        except Exception as e:
-            # Fallback to Grok
-            try:
-                response = await call_grok(messages, system_prompt)
-                for word in response.split(" "):
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': word + ' '})}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'model_used': 'grok'})}\n\n"
-            except Exception as e2:
-                yield f"data: {json.dumps({'type': 'error', 'message': str(e2)[:100]})}\n\n"
+@app.post("/api/chat/openai")
+async def chat_openai(request: Request):
+    """Thin proxy → OpenAI. Called by iOS streamChat/generateSocial."""
+    verify_sal_key(request)
+    if not OPENAI_API_KEY:
+        raise HTTPException(500, "OPENAI_API_KEY not set")
+    body = await request.json()
+    msgs = []
+    if body.get("system"):
+        msgs.append({"role": "system", "content": body["system"]})
+    msgs.extend(body.get("messages", []))
+    upstream_body = {
+        "model":      body.get("model", "gpt-4o-mini"),
+        "max_tokens": body.get("max_tokens", 4096),
+        "messages":   msgs,
+        "stream":     body.get("stream", False),
+    }
+    async def _proxy():
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            if upstream_body["stream"]:
+                async with client.stream(
+                    "POST",
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type":  "application/json",
+                    },
+                    json=upstream_body,
+                ) as resp:
+                    async for chunk in resp.aiter_bytes():
+                        yield chunk
+            else:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENAI_API_KEY}",
+                        "Content-Type":  "application/json",
+                    },
+                    json=upstream_body,
+                )
+                yield resp.content
+    media = "text/event-stream" if upstream_body["stream"] else "application/json"
+    return StreamingResponse(_proxy(), media_type=media,
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+
+@app.post("/api/search/gemini")
+async def search_gemini(request: Request):
+    """Gemini web-grounded search. Called by iOS searchGemini."""
+    verify_sal_key(request)
+    body = await request.json()
+    query = body.get("query", "").strip()
+    if not query:
+        raise HTTPException(400, "query is required")
+    # Fallback to Tavily if Gemini key missing
+    try:
+        if GEMINI_API_KEY:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}",
+                    json={
+                        "contents": [{"parts": [{"text": query}]}],
+                        "tools": [{"google_search": {}}],
+                    },
+                )
+                data = resp.json()
+                text = ""
+                for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
+                    text += part.get("text", "")
+                sources = [
+                    {"url": g.get("uri", ""), "title": g.get("title", "")}
+                    for g in data.get("candidates", [{}])[0].get("groundingMetadata", {}).get("groundingChunks", [])
+                ]
+                return {"answer": text, "sources": sources}
+        elif TAVILY_API_KEY:
+            results = await call_tavily(query)
+            answer = "\n\n".join(r.get("content", "")[:300] for r in results[:3])
+            sources = [{"url": r.get("url", ""), "title": r.get("title", "")} for r in results[:5]]
+            return {"answer": answer, "sources": sources}
+        else:
+            return {"answer": "Search unavailable — no search key configured.", "sources": []}
+    except Exception as e:
+        raise HTTPException(500, f"Search failed: {str(e)[:200]}")
 
 
 @app.get("/api/verticals/trending")
