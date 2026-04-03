@@ -11,6 +11,7 @@ import os
 import json
 import uuid
 import re
+import time
 import asyncio
 from datetime import datetime
 from typing import Optional, AsyncIterator
@@ -33,10 +34,12 @@ except ImportError:
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
-XAI_API_KEY       = os.environ.get("XAI_API_KEY", "")
-SAL_GATEWAY_KEY   = os.environ.get("SAL_GATEWAY_KEY", "saintvision_gateway_2025")
+ANTHROPIC_API_KEY    = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENAI_API_KEY       = os.environ.get("OPENAI_API_KEY", "")
+XAI_API_KEY          = os.environ.get("XAI_API_KEY", "")
+SAL_GATEWAY_KEY      = os.environ.get("SAL_GATEWAY_KEY", "saintvision_gateway_2025")
+SUPABASE_URL         = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
 # ── Router ────────────────────────────────────────────────────────────────────
 
@@ -160,6 +163,249 @@ def _parse_json(raw: str, fallback: dict) -> dict:
         return json.loads(cleaned)
     except (json.JSONDecodeError, ValueError):
         return fallback
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILDER ELITE — SYSTEM PROMPT (The Secret Weapon)
+# ══════════════════════════════════════════════════════════════════════════════
+
+BUILDER_SYSTEM_PROMPT = """You are an elite senior full-stack engineer working at the
+intersection of design and engineering. You write code that ships to production at
+companies like Vercel, Linear, Stripe, and Notion. Your output is not a prototype —
+it IS the product.
+
+You are building inside SaintSal™ Builder, powered by US Patent #10,290,222.
+
+## OUTPUT FORMAT (STRICT)
+
+Return ONLY valid JSON. No markdown fences. No explanation outside the JSON.
+
+{
+  "files": [
+    { "path": "index.html", "content": "..." },
+    { "path": "styles.css", "content": "..." },
+    { "path": "app.js", "content": "..." }
+  ],
+  "preview_html": "SINGLE SELF-CONTAINED HTML FILE — all CSS inline, all JS inline, works standalone",
+  "summary": "2-sentence description of what was built",
+  "framework": "react|nextjs|html|vue",
+  "features": ["responsive", "dark-mode", "animated", ...]
+}
+
+## DESIGN STANDARDS (NON-NEGOTIABLE)
+
+LAYOUT:
+- Use CSS Grid and Flexbox. No floats. No tables for layout.
+- Mobile-first responsive. Breakpoints: 640px, 768px, 1024px, 1280px.
+- Proper spacing system: 4px base unit (4, 8, 12, 16, 24, 32, 48, 64, 96).
+- Max content width: 1280px centered. Full-bleed sections where appropriate.
+
+TYPOGRAPHY:
+- System font stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif.
+- Type scale: 12/14/16/18/20/24/30/36/48/60/72px.
+- Line heights: 1.1 for headings, 1.5 for body, 1.6 for long-form.
+- Font weights: 400 (body), 500 (medium), 600 (semibold), 700 (bold), 800 (extrabold).
+- Letter spacing: -0.02em for large headings, normal for body.
+
+COLOR:
+- Generate a cohesive palette. Not random colors.
+- Dark mode default: backgrounds #0a0a0a → #111 → #1a1a1a. Text #fafafa → #a1a1aa.
+- Light mode available: backgrounds #fff → #f4f4f5 → #e4e4e7. Text #09090b → #71717a.
+- Accent color derived from the brand/purpose of the app.
+- Proper contrast ratios (WCAG AA minimum: 4.5:1 for text).
+
+COMPONENTS:
+- Buttons: rounded-lg (8px), proper hover/active states, transition-all 150ms.
+- Cards: subtle border (1px #1e1e1e), rounded-xl (12px), hover:shadow-lg transition.
+- Inputs: rounded-lg, border, focus ring with accent color, proper placeholder styling.
+- Navigation: sticky, backdrop-blur, border-bottom, proper mobile hamburger.
+- Modals: backdrop-blur overlay, centered, proper focus trap concept.
+- Tables: alternating rows, sticky header, proper cell padding.
+
+ANIMATIONS & POLISH:
+- Subtle entrance animations (fade-up, fade-in) on scroll using IntersectionObserver.
+- Hover transitions on all interactive elements (150ms ease).
+- Smooth scroll behavior on the html element.
+- Loading states for buttons (spinner or pulse).
+- Skeleton loaders for content areas.
+- Proper focus-visible outlines for accessibility.
+
+IMAGES & MEDIA:
+- Use placeholder images from https://picsum.photos or https://placehold.co
+- Proper aspect ratios with object-fit: cover.
+- Lazy loading with loading="lazy" attribute.
+- Hero images: full-width with gradient overlay for text readability.
+
+ICONS:
+- Use inline SVG icons (no external dependencies in preview).
+- Common icons: arrow-right, check, x, menu, search, user, settings, mail, phone.
+- Size: 16px (small), 20px (default), 24px (large). Stroke-width: 1.5-2px.
+
+CODE QUALITY:
+- Semantic HTML5: header, main, section, article, aside, footer, nav.
+- Proper heading hierarchy: one h1, then h2, h3 in order.
+- Alt text on all images. Aria labels on icon buttons.
+- No inline styles in React — use className with a styles object or Tailwind classes.
+- Event handlers: proper naming (handleClick, handleSubmit, onChange).
+- State management: useState for local, useReducer for complex.
+- Clean prop interfaces. Destructured props. Default values.
+
+REACT SPECIFIC:
+- Functional components only. Named exports.
+- Hooks at the top of the component.
+- Memoize expensive computations with useMemo.
+- Key props on all mapped elements (never use index as key if items can reorder).
+- Error boundaries: wrap major sections.
+- For preview_html: use React 18 via CDN (unpkg.com/react@18, unpkg.com/react-dom@18).
+- Use Babel standalone for JSX in preview: unpkg.com/babel-standalone@7.
+- Tailwind CSS via CDN: cdn.tailwindcss.com/3.4.0 for rapid styling.
+
+## GENERATION RULES
+
+1. preview_html MUST be a SINGLE self-contained HTML file that works when opened directly.
+   All CSS, JS, React, and Tailwind must be loaded via CDN in that one file.
+   If it doesn't render standalone, you failed.
+
+2. Generate COMPLETE implementations. No "// TODO" or "// Add your code here."
+   Every button should do something. Every form should have validation.
+   Every list should have sample data. No empty states without a design.
+
+3. Sample data should feel REAL. Not "Lorem ipsum" or "Item 1, Item 2."
+   Use realistic names, prices, descriptions, dates. Make it feel like a shipped product.
+
+4. The app should look like it belongs on Product Hunt, not on a tutorial blog.
+   Design differentiation matters. Every app should feel intentionally designed.
+
+5. For edits: change ONLY what the user asked. Preserve everything else exactly.
+   Compare before/after mentally. If they said "make header blue," ONLY the header changes.
+
+## FRAMEWORK SELECTION
+
+Analyze the prompt and choose the optimal framework:
+- Landing pages, marketing sites → HTML + Tailwind + Alpine.js (lightest, fastest)
+- Interactive apps, dashboards → React 18 + Tailwind (rich interactivity)
+- Full-stack with routing → Next.js structure (pages, API routes, layouts)
+- Quick components, widgets → React with minimal deps
+
+Always default to React + Tailwind unless the prompt clearly asks for something else.
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILDER ELITE — COMPLEXITY SCORING + MODEL ROUTING
+# ══════════════════════════════════════════════════════════════════════════════
+
+def score_complexity(prompt: str, history: list) -> int:
+    """Score prompt complexity 0-100 for model tier routing."""
+    score = 0
+    prompt_lower = prompt.lower()
+
+    if len(prompt) > 500: score += 15
+    elif len(prompt) > 200: score += 10
+    elif len(prompt) > 100: score += 5
+
+    full_app_keywords = [
+        'dashboard', 'saas', 'auth', 'login', 'signup', 'billing',
+        'admin panel', 'crud', 'database', 'api', 'full-stack', 'multi-page',
+        'routing', 'navigation', 'user management', 'e-commerce', 'checkout',
+        'payment', 'subscription', 'real-time', 'websocket', 'chat app',
+    ]
+    score += sum(10 for kw in full_app_keywords if kw in prompt_lower)
+
+    edit_keywords = ['change', 'make the', 'update', 'fix', 'modify', 'adjust',
+                     'move', 'resize', 'recolor', 'rename']
+    if any(kw in prompt_lower for kw in edit_keywords) and history:
+        score = max(score - 30, 0)
+
+    score += min(len(history) * 2, 20)
+    return min(score, 100)
+
+
+def is_creative(prompt: str) -> bool:
+    """Detect creative/artistic prompts for Grok routing."""
+    creative_keywords = [
+        'artistic', 'creative', 'unique', 'experimental',
+        'cyberpunk', 'retro', 'neon', 'glassmorphism', 'brutalist',
+        'organic', 'animated', 'parallax', '3d', 'immersive',
+        'unconventional', 'wild', 'crazy', 'futuristic',
+    ]
+    return any(kw in prompt.lower() for kw in creative_keywords)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILDER ELITE — SUPABASE HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _get_remaining_credits(user_id: str) -> float:
+    """Return remaining compute credits for user. Returns large number if Supabase not configured."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not _HTTPX_AVAILABLE:
+        return 9999.0
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(
+                f"{SUPABASE_URL}/rest/v1/profiles",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                },
+                params={"user_id": f"eq.{user_id}", "select": "compute_credits_remaining"},
+            )
+            if res.status_code == 200:
+                rows = res.json()
+                if rows:
+                    return float(rows[0].get("compute_credits_remaining", 9999))
+    except Exception:
+        pass
+    return 9999.0
+
+
+async def _log_usage(user_id: str, payload: dict):
+    """Log builder usage to Supabase usage_log table. Silent on failure."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not _HTTPX_AVAILABLE:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{SUPABASE_URL}/rest/v1/usage_log",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={"user_id": user_id, **payload, "created_at": datetime.utcnow().isoformat()},
+            )
+    except Exception:
+        pass
+
+
+async def _save_builder_project(user_id: str, build_id: str, prompt: str, result: dict):
+    """Save builder project to Supabase builder_projects table. Silent on failure."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not _HTTPX_AVAILABLE:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{SUPABASE_URL}/rest/v1/builder_projects",
+                headers={
+                    "apikey": SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+                json={
+                    "user_id": user_id,
+                    "build_id": build_id,
+                    "prompt": prompt,
+                    "summary": result.get("summary", ""),
+                    "framework": result.get("framework", "html"),
+                    "files": result.get("files", []),
+                    "preview_html": result.get("preview_html", ""),
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+            )
+    except Exception:
+        pass
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -788,65 +1034,243 @@ async def builder_agent_v1(request: Request):
 @builder_router.post("/v2/generate")
 async def builder_quick_generate(request: Request):
     """
-    Quick build — single-shot Claude generation, no 5-agent pipeline.
-    Useful for rapid prototyping or free tier fallback.
+    Builder v2 Elite — 4-tier model routing, elite system prompt, metering.
+    Returns JSON: { preview_html, files, summary, framework, features,
+                    build_id, model_used, tier, compute_cost, elapsed_seconds }
     """
     _verify(request)
     body = await request.json()
     prompt = body.get("prompt", "").strip()
+    history = body.get("history", [])
+    user_id = body.get("user_id")
 
     if not prompt:
         raise HTTPException(400, "prompt is required")
 
-    session_id = body.get("session_id") or f"quick_{uuid.uuid4().hex[:10]}"
+    # ── Step 1: Check compute credits ────────────────────────────────────────
+    if user_id:
+        credits = await _get_remaining_credits(user_id)
+        if credits <= 0:
+            return JSONResponse({
+                "error": "insufficient_credits",
+                "message": "Upgrade your plan for more Builder credits.",
+                "upgrade_url": "https://saintsallabs.com/pricing",
+            }, status_code=402)
 
-    full_prompt = (
-        f"Build a complete, production-quality web app:\n{prompt}\n\n"
-        "Design rules:\n"
-        "  - Dark theme: background #0b0b0f, cards #131318\n"
-        "  - Gold accent: #f59e0b\n"
-        "  - Text: #e8e6e1\n"
-        "  - Responsive, mobile-friendly\n"
-        "  - Smooth animations and transitions\n"
-        "  - No placeholders — real content\n\n"
-        "Return ONLY a JSON object with key 'files' containing array of:\n"
-        "  {path: string, content: string (complete file), language: string}\n"
-        "No markdown. No explanation. Only the JSON."
+    # ── Step 2: Score complexity → select model tier ─────────────────────────
+    complexity = score_complexity(prompt, history)
+
+    if complexity >= 80:
+        models = [("anthropic", "claude-opus-4-6"), ("openai", "gpt-4o")]
+        tier = "ARCHITECT"
+        cost_per_min = 1.00
+    elif complexity >= 50:
+        models = [("anthropic", "claude-sonnet-4-6"), ("openai", "gpt-4o")]
+        tier = "BUILDER"
+        cost_per_min = 0.25
+    elif is_creative(prompt):
+        models = [("xai", "grok-beta"), ("anthropic", "claude-sonnet-4-6")]
+        tier = "CREATIVE"
+        cost_per_min = 0.50
+    else:
+        models = [("anthropic", "claude-haiku-4-5-20251001"), ("openai", "gpt-4o")]
+        tier = "QUICK"
+        cost_per_min = 0.05
+
+    # ── Step 3: Build messages ────────────────────────────────────────────────
+    messages = []
+    for msg in history[-10:]:
+        messages.append(msg)
+    messages.append({"role": "user", "content": prompt})
+
+    # ── Step 4: Call model with fallback chain ────────────────────────────────
+    start_time = time.time()
+    raw_response = None
+    model_used = None
+
+    for provider, model in models:
+        try:
+            if provider == "anthropic":
+                raw_response = await _call_claude_sync(
+                    messages, BUILDER_SYSTEM_PROMPT, model=model, max_tokens=8192
+                )
+            elif provider == "xai":
+                raw_response = await _call_grok(messages, BUILDER_SYSTEM_PROMPT, max_tokens=8192)
+            elif provider == "openai":
+                raw_response = await _call_gpt5(messages, BUILDER_SYSTEM_PROMPT)
+            model_used = f"{provider}/{model}"
+            break
+        except Exception as e:
+            print(f"[Builder Elite] {model} failed: {e}")
+            continue
+
+    if not raw_response:
+        return JSONResponse({
+            "error": "generation_failed",
+            "message": "All models unavailable. Try again in a moment.",
+        }, status_code=503)
+
+    elapsed = time.time() - start_time
+
+    # ── Step 5: Parse response ────────────────────────────────────────────────
+    result = _parse_json(raw_response, {
+        "files": [{"path": "index.html", "content": raw_response, "language": "html"}],
+        "preview_html": raw_response,
+        "summary": "Generated application",
+        "framework": "html",
+        "features": [],
+    })
+
+    # Ensure preview_html exists — fall back to first file content
+    if not result.get("preview_html") and result.get("files"):
+        result["preview_html"] = result["files"][0].get("content", "")
+
+    # ── Step 6: Meter usage ───────────────────────────────────────────────────
+    compute_minutes = max(elapsed / 60, 0.1)
+    cost = round(compute_minutes * cost_per_min, 4)
+
+    if user_id:
+        await _log_usage(user_id, {
+            "type": "builder_generate",
+            "model": model_used,
+            "tier": tier,
+            "prompt_length": len(prompt),
+            "response_length": len(raw_response),
+            "elapsed_seconds": round(elapsed, 2),
+            "compute_minutes": round(compute_minutes, 4),
+            "cost": cost,
+        })
+
+    # ── Step 7: Save project ──────────────────────────────────────────────────
+    build_id = uuid.uuid4().hex[:8]
+    if user_id:
+        await _save_builder_project(user_id, build_id, prompt, result)
+
+    _sessions[build_id] = {
+        "prompt": prompt,
+        "status": "complete",
+        "files": result.get("files", []),
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+    # ── Step 8: Return ────────────────────────────────────────────────────────
+    result["build_id"] = build_id
+    result["model_used"] = model_used
+    result["tier"] = tier
+    result["compute_cost"] = cost
+    result["elapsed_seconds"] = round(elapsed, 2)
+
+    return JSONResponse(result)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# POST /api/builder/edit — Diff-based edit (preserves existing code)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@builder_router.post("/edit")
+async def builder_edit(request: Request):
+    """
+    Elite diff-based edit — change only what the user asked, preserve everything else.
+    Returns same JSON shape as /generate.
+    """
+    _verify(request)
+    body = await request.json()
+    prompt = body.get("prompt", "").strip()
+    current_code = body.get("current_code", "")
+    history = body.get("history", [])
+    user_id = body.get("user_id")
+
+    if not prompt:
+        raise HTTPException(400, "prompt is required")
+    if not current_code:
+        raise HTTPException(400, "current_code is required for edits")
+
+    # Edits always use QUICK or BUILDER tier based on complexity
+    complexity = score_complexity(prompt, history)
+    if complexity >= 50:
+        models = [("anthropic", "claude-sonnet-4-6"), ("openai", "gpt-4o")]
+        tier = "BUILDER"
+        cost_per_min = 0.25
+    else:
+        models = [("anthropic", "claude-haiku-4-5-20251001"), ("openai", "gpt-4o")]
+        tier = "QUICK"
+        cost_per_min = 0.05
+
+    edit_prompt = (
+        f"EXISTING CODE:\n{current_code}\n\n"
+        f"EDIT REQUEST: {prompt}\n\n"
+        "Apply ONLY the requested change. Preserve all other code exactly. "
+        "Return the complete updated file(s) in the same JSON format."
     )
 
-    async def quick_gen():
-        yield _sse("status", {"phase": "building", "session_id": session_id})
+    messages = []
+    for msg in history[-6:]:
+        messages.append(msg)
+    messages.append({"role": "user", "content": edit_prompt})
 
-        raw = ""
-        async for chunk in _stream_claude(
-            [{"role": "user", "content": full_prompt}],
-            "You are a senior full-stack engineer. Generate complete, working, beautiful apps. Return ONLY valid JSON.",
-            model="claude-sonnet-4-6",
-        ):
-            raw += chunk
-            yield _sse("chunk", {"content": chunk})
+    start_time = time.time()
+    raw_response = None
+    model_used = None
 
-        data = _parse_json(raw, {
-            "files": [{"path": "index.html", "content": raw, "language": "html"}]
-        })
+    for provider, model in models:
+        try:
+            if provider == "anthropic":
+                raw_response = await _call_claude_sync(
+                    messages, BUILDER_SYSTEM_PROMPT, model=model, max_tokens=8192
+                )
+            elif provider == "openai":
+                raw_response = await _call_gpt5(messages, BUILDER_SYSTEM_PROMPT)
+            model_used = f"{provider}/{model}"
+            break
+        except Exception as e:
+            print(f"[Builder Edit] {model} failed: {e}")
+            continue
 
-        _sessions[session_id] = {
-            "prompt":     prompt,
-            "status":     "complete",
-            "files":      data,
-            "created_at": datetime.utcnow().isoformat(),
-        }
+    if not raw_response:
+        return JSONResponse({
+            "error": "edit_failed",
+            "message": "All models unavailable. Try again in a moment.",
+        }, status_code=503)
 
-        yield _sse("complete", {
-            "session_id":  session_id,
-            "files":       data.get("files", []),
-            "total_files": len(data.get("files", [])),
-        })
+    elapsed = time.time() - start_time
 
-    return StreamingResponse(quick_gen(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
+    result = _parse_json(raw_response, {
+        "files": [{"path": "index.html", "content": raw_response, "language": "html"}],
+        "preview_html": raw_response,
+        "summary": "Applied edit",
+        "framework": "html",
+        "features": [],
     })
+
+    if not result.get("preview_html") and result.get("files"):
+        result["preview_html"] = result["files"][0].get("content", "")
+
+    compute_minutes = max(elapsed / 60, 0.1)
+    cost = round(compute_minutes * cost_per_min, 4)
+
+    if user_id:
+        await _log_usage(user_id, {
+            "type": "builder_edit",
+            "model": model_used,
+            "tier": tier,
+            "prompt_length": len(prompt),
+            "response_length": len(raw_response),
+            "elapsed_seconds": round(elapsed, 2),
+            "compute_minutes": round(compute_minutes, 4),
+            "cost": cost,
+        })
+
+    build_id = uuid.uuid4().hex[:8]
+    if user_id:
+        await _save_builder_project(user_id, build_id, prompt, result)
+
+    result["build_id"] = build_id
+    result["model_used"] = model_used
+    result["tier"] = tier
+    result["compute_cost"] = cost
+    result["elapsed_seconds"] = round(elapsed, 2)
+
+    return JSONResponse(result)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
