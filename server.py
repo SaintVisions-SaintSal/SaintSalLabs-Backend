@@ -424,6 +424,66 @@ async def search_gemini(request: Request):
         raise HTTPException(500, f"Search failed: {str(e)[:200]}")
 
 
+@app.post("/api/chat")
+async def chat_sse(request: Request):
+    """
+    SSE streaming chat — called by iOS streamSalChat.
+    Accepts: {message, vertical, history, search}
+    Returns SSE: {"type":"text","content":"..."}, {"type":"sources",...}, {"type":"done"}
+    """
+    verify_sal_key(request)
+    body = await request.json()
+    message  = body.get("message", "").strip()
+    vertical = body.get("vertical", "search").lower()
+    history  = body.get("history", [])
+    do_search = body.get("search", True)
+
+    if not message:
+        raise HTTPException(400, "message is required")
+
+    vertical_prompts = VERTICAL_SYSTEM_PROMPTS
+    system_prompt = vertical_prompts.get(vertical, vertical_prompts.get("search", "You are SAL, a helpful AI assistant for SaintSal™ Labs."))
+
+    # Build message list
+    msgs = [{"role": m["role"], "content": m["content"]} for m in (history or [])[-20:] if m.get("role") in ("user","assistant") and m.get("content")]
+    msgs.append({"role": "user", "content": message})
+
+    # Web search pre-fetch for search-enabled verticals
+    sources = []
+    if do_search and vertical in ("search", "sports", "finance", "realestate") and (TAVILY_API_KEY or EXA_API_KEY):
+        try:
+            if TAVILY_API_KEY:
+                results = await call_tavily(message, max_results=5)
+            elif EXA_API_KEY:
+                results = await call_exa(message)
+            else:
+                results = []
+            if results:
+                ctx = "\n\n".join(f"Source: {r.get('url','')}\n{r.get('content',r.get('text',''))[:400]}" for r in results[:3])
+                system_prompt += f"\n\n=== LIVE WEB DATA ===\n{ctx}"
+                sources = [{"url": r.get("url",""), "title": r.get("title","")} for r in results[:5]]
+        except Exception:
+            pass
+
+    async def generate():
+        if sources:
+            yield f"data: {json.dumps({'type':'sources','sources':sources})}\n\n"
+        try:
+            async for chunk in stream_claude(msgs, system_prompt, model="claude-sonnet-4-6"):
+                yield f"data: {json.dumps({'type':'text','content':chunk})}\n\n"
+        except Exception:
+            try:
+                text = await call_grok(msgs, system_prompt)
+                for word in text.split(" "):
+                    yield f"data: {json.dumps({'type':'text','content':word+' '})}\n\n"
+            except Exception as e:
+                yield f"data: {json.dumps({'type':'error','message':str(e)[:100]})}\n\n"
+        yield f"data: {json.dumps({'type':'done'})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/verticals/trending")
 async def verticals_trending(vertical: str = "search", user_id: Optional[str] = None, request: Request = None):
     """
