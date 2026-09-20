@@ -5,7 +5,7 @@ Saint Vision Technologies LLC | US Patent #10,290,222 (HACP™)
 Routes:
   POST /api/mcp/chat          — SSE streaming chat, 8 intelligence verticals
   GET  /api/verticals/trending — Trending content per vertical (Tavily/Exa)
-  POST /api/mcp/crm           — GHL CRM actions
+  POST /api/mcp/crm           — Tha Saints CRM actions
 """
 
 import os
@@ -433,17 +433,17 @@ async def verticals_trending(
 @router.post("/api/mcp/crm")
 async def mcp_crm(body: CRMRequest, request: Request):
     """
-    GHL CRM actions.
+    Tha Saints CRM actions.
 
     Actions:
-      list_contacts — Returns up to 20 contacts for the GHL location
+      list_contacts — Returns up to 20 contacts for the Tha Saints CRM location
       add_contact   — Creates a new contact (firstName, lastName, email, phone, tags)
-      get_pipeline  — Returns all pipelines for the GHL location
+      get_pipeline  — Returns all pipelines for the Tha Saints CRM location
     """
     _verify_key(request)
 
     if not GHL_TOKEN:
-        raise HTTPException(status_code=503, detail="GHL integration not configured")
+        raise HTTPException(status_code=503, detail="Tha Saints CRM integration not configured")
 
     headers = {
         "Authorization": f"Bearer {GHL_TOKEN}",

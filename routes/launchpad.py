@@ -11,7 +11,7 @@ Routes:
   POST /api/launchpad/entity/ein          — EIN filing
   POST /api/launchpad/dns/configure       — Auto DNS setup (GoDaddy API)
   POST /api/launchpad/ssl/provision       — SSL provisioning
-  POST /api/launchpad/compliance/setup    — Compliance calendar + GHL reminders
+  POST /api/launchpad/compliance/setup    — Compliance calendar + Tha Saints CRM reminders
   POST /api/launchpad/order               — FileForms order (legacy)
   GET  /api/launchpad/order/{order_id}    — Order status check
   POST /api/launchpad/checkout            — Stripe checkout for formation fee
@@ -1005,7 +1005,7 @@ async def launchpad_ssl_provision(req: SSLProvisionRequest, request: Request):
 @router.post("/api/launchpad/compliance/setup")
 async def launchpad_compliance_setup(req: ComplianceSetupRequest, request: Request):
     """
-    Generate compliance calendar and optionally create GHL reminders.
+    Generate compliance calendar and optionally create Tha Saints CRM reminders.
     """
     verify_sal_key(request)
 

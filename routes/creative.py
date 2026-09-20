@@ -443,7 +443,7 @@ async def creative_image(request: Request):
 @router.post("/api/creative/social/post")
 async def creative_social_post(request: Request):
     """
-    Post to social platforms via GHL Social Studio.
+    Post to social platforms via Tha Saints CRM Social Studio.
 
     Body:
       content       str  — Post text content
@@ -466,7 +466,7 @@ async def creative_social_post(request: Request):
 
     if not GHL_PRIVATE_TOKEN:
         return {
-            "error": "GHL not configured — set GHL_PRIVATE_TOKEN",
+            "error": "Tha Saints CRM not configured — set GHL_PRIVATE_TOKEN",
             "post_ids": {},
             "platforms": platforms,
         }
@@ -883,12 +883,12 @@ async def creative_brand_profiles(request: Request):
 @router.post("/api/marketing/daily-content")
 async def marketing_daily_content(request: Request):
     """
-    Generate today's daily content package for GHL Social Studio.
+    Generate today's daily content package for Tha Saints CRM Social Studio.
 
     Body:
       topic         str  — Optional topic override
       platforms     list — Target platforms
-      post_now      bool — If true, immediately post via GHL
+      post_now      bool — If true, immediately post via Tha Saints CRM
     """
     verify_sal_key(request)
     body = await request.json()
@@ -943,7 +943,7 @@ async def marketing_daily_content(request: Request):
 
 @router.get("/api/social/platforms")
 async def social_platforms(request: Request):
-    """Connected social platform status + GHL integration health."""
+    """Connected social platform status + Tha Saints CRM integration health."""
     verify_sal_key(request)
 
     ghl_connected = bool(GHL_PRIVATE_TOKEN)
@@ -954,7 +954,7 @@ async def social_platforms(request: Request):
                 "id": "linkedin",
                 "name": "LinkedIn",
                 "status": "connected" if ghl_connected else "not_connected",
-                "via": "GHL Social Studio",
+                "via": "Tha Saints CRM Social Studio",
                 "icon": "in",
                 "color": "#0077b5",
             },
@@ -962,7 +962,7 @@ async def social_platforms(request: Request):
                 "id": "twitter",
                 "name": "X (Twitter)",
                 "status": "connected" if ghl_connected else "registering",
-                "via": "GHL Social Studio",
+                "via": "Tha Saints CRM Social Studio",
                 "icon": "X",
                 "color": "#000000",
             },
@@ -970,7 +970,7 @@ async def social_platforms(request: Request):
                 "id": "instagram",
                 "name": "Instagram",
                 "status": "connected" if ghl_connected else "via_meta",
-                "via": "Meta Business Suite via GHL",
+                "via": "Meta Business Suite via Tha Saints CRM",
                 "icon": "ig",
                 "color": "#e1306c",
             },
@@ -978,7 +978,7 @@ async def social_platforms(request: Request):
                 "id": "facebook",
                 "name": "Facebook",
                 "status": "connected" if ghl_connected else "via_meta",
-                "via": "Meta Business Suite via GHL",
+                "via": "Meta Business Suite via Tha Saints CRM",
                 "icon": "fb",
                 "color": "#1877f2",
             },
@@ -986,7 +986,7 @@ async def social_platforms(request: Request):
                 "id": "tiktok",
                 "name": "TikTok",
                 "status": "pending",
-                "via": "GHL Social Studio",
+                "via": "Tha Saints CRM Social Studio",
                 "icon": "tt",
                 "color": "#010101",
             },
@@ -994,7 +994,7 @@ async def social_platforms(request: Request):
                 "id": "youtube",
                 "name": "YouTube",
                 "status": "connected" if ghl_connected else "via_google",
-                "via": "Google via GHL",
+                "via": "Google via Tha Saints CRM",
                 "icon": "yt",
                 "color": "#ff0000",
             },

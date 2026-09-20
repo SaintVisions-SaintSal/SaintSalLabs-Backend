@@ -1,5 +1,5 @@
 """
-SaintSal™ Labs — Profile, GHL Intel Hub, Dashboard, and Metering Router
+SaintSal™ Labs — Profile, Tha Saints CRM Intel Hub, Dashboard, and Metering Router
 Saint Vision Technologies LLC | US Patent #10,290,222 (HACP™)
 Owner: Ryan "Cap" Capatosto
 
@@ -188,7 +188,7 @@ async def _sb_patch(table: str, match: dict, data: dict) -> dict:
 # ── GHL helpers ───────────────────────────────────────────────────────────────
 
 async def _ghl_get(path: str, params: dict = None) -> dict:
-    """GET from GHL API with error passthrough."""
+    """GET from Tha Saints CRM API with error passthrough."""
     if not GHL_TOKEN:
         return {"error": "GHL_PRIVATE_TOKEN not configured"}
     async with httpx.AsyncClient(timeout=15) as client:
@@ -203,7 +203,7 @@ async def _ghl_get(path: str, params: dict = None) -> dict:
 
 
 async def _ghl_post(path: str, data: dict) -> dict:
-    """POST to GHL API."""
+    """POST to Tha Saints CRM API."""
     if not GHL_TOKEN:
         return {"error": "GHL_PRIVATE_TOKEN not configured"}
     async with httpx.AsyncClient(timeout=15) as client:
@@ -341,239 +341,22 @@ Return exactly this structure:
 # GHL INTEL HUB ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/api/ghl/stats")
-async def ghl_stats(request: Request):
-    """
-    Aggregate GHL stats: total contacts, pipeline count, deals, revenue MTD,
-    tasks due today, and the 10 most recent contacts as recent_leads.
-    """
-    _verify_key(request)
-
-    loc = GHL_LOC
-
-    # Contacts count
-    contacts_data = await _ghl_get("/contacts", {"locationId": loc, "limit": 1})
-    total_contacts = contacts_data.get("meta", {}).get("total", 0)
-
-    # Recent leads (last 10 added)
-    recent_data = await _ghl_get("/contacts", {
-        "locationId": loc,
-        "limit": 10,
-        "sortBy": "date_added",
-        "sortDirection": "desc",
-    })
-    recent_leads = recent_data.get("contacts", [])
-
-    # Pipelines
-    pipelines_data = await _ghl_get("/pipelines", {"locationId": loc})
-    pipelines = pipelines_data.get("pipelines", [])
-    pipelines_count = len(pipelines)
-
-    # Count active deals across all pipelines
-    active_deals = 0
-    revenue_mtd = 0.0
-    for p in pipelines:
-        for stage in p.get("stages", []):
-            count = stage.get("opportunityCount", 0)
-            value = stage.get("opportunityValue", 0)
-            active_deals += count
-            revenue_mtd += value
-
-    # Tasks due today
-    today = date.today().isoformat()
-    tasks_data = await _ghl_get("/tasks", {
-        "locationId": loc,
-        "dueDate": today,
-        "limit": 50,
-    })
-    tasks_today = len(tasks_data.get("tasks", []))
-
-    return JSONResponse({
-        "ok": True,
-        "stats": {
-            "total_contacts":  total_contacts,
-            "pipelines_count": pipelines_count,
-            "active_deals":    active_deals,
-            "revenue_mtd":     revenue_mtd,
-            "tasks_due_today": tasks_today,
-        },
-        "pipelines":    pipelines,
-        "recent_leads": recent_leads,
-    })
 
 
-@router.get("/api/ghl/contacts")
-async def ghl_contacts(request: Request, limit: int = 20, offset: int = 0):
-    """Paginated contacts list."""
-    _verify_key(request)
-    data = await _ghl_get("/contacts", {
-        "locationId": GHL_LOC,
-        "limit": min(limit, 100),
-        "offset": offset,
-        "sortBy": "date_added",
-        "sortDirection": "desc",
-    })
-    return JSONResponse({
-        "ok": True,
-        "contacts": data.get("contacts", []),
-        "meta": data.get("meta", {}),
-    })
 
 
-@router.post("/api/ghl/contacts/search")
-async def ghl_contacts_search(body: ContactSearch, request: Request):
-    """Search contacts by name, email, or phone."""
-    _verify_key(request)
-    data = await _ghl_get("/contacts/search", {
-        "locationId": GHL_LOC,
-        "query": body.query,
-        "limit": min(body.limit, 50),
-        "offset": body.offset,
-    })
-    return JSONResponse({
-        "ok": True,
-        "contacts": data.get("contacts", []),
-        "meta": data.get("meta", {}),
-    })
 
 
-@router.post("/api/ghl/contacts/create")
-async def ghl_contacts_create(body: ContactCreate, request: Request):
-    """Create a new contact in GHL."""
-    _verify_key(request)
-    payload = {
-        "locationId": GHL_LOC,
-        "firstName":  body.firstName,
-        "lastName":   body.lastName,
-        "email":      body.email,
-        "phone":      body.phone,
-        "tags":       body.tags,
-        "source":     body.source,
-    }
-    data = await _ghl_post("/contacts", payload)
-    return JSONResponse({"ok": True, "contact": data.get("contact", data)})
 
 
-@router.get("/api/ghl/pipelines")
-async def ghl_pipelines(request: Request):
-    """All pipelines with stages and deal counts."""
-    _verify_key(request)
-    data = await _ghl_get("/pipelines", {"locationId": GHL_LOC})
-    pipelines = data.get("pipelines", [])
-
-    # Enrich each pipeline with opportunity totals per stage
-    enriched = []
-    async with httpx.AsyncClient(timeout=20) as client:
-        for pipeline in pipelines:
-            pid = pipeline.get("id", "")
-            stages = pipeline.get("stages", [])
-            total_deals = 0
-            total_value = 0.0
-
-            for stage in stages:
-                sid = stage.get("id", "")
-                if pid and sid:
-                    try:
-                        opp_res = await client.get(
-                            f"{GHL_BASE}/pipelines/{pid}/opportunities",
-                            params={
-                                "locationId": GHL_LOC,
-                                "stageId": sid,
-                                "limit": 1,
-                            },
-                            headers=_ghl_headers(),
-                            timeout=5,
-                        )
-                        if opp_res.status_code == 200:
-                            opp_data = opp_res.json()
-                            meta = opp_data.get("meta", {})
-                            count = meta.get("total", 0)
-                            stage["deal_count"] = count
-                            total_deals += count
-                    except Exception:
-                        stage["deal_count"] = 0
-                else:
-                    stage["deal_count"] = 0
-
-            pipeline["total_deals"] = total_deals
-            pipeline["total_value"] = total_value
-            enriched.append(pipeline)
-
-    return JSONResponse({"ok": True, "pipelines": enriched})
 
 
-@router.get("/api/ghl/pipeline/{pipeline_id}/deals")
-async def ghl_pipeline_deals(pipeline_id: str, request: Request, limit: int = 50, offset: int = 0):
-    """Get deals (opportunities) in a specific pipeline."""
-    _verify_key(request)
-    data = await _ghl_get(
-        f"/pipelines/{pipeline_id}/opportunities",
-        {"locationId": GHL_LOC, "limit": min(limit, 100), "offset": offset},
-    )
-    return JSONResponse({
-        "ok": True,
-        "deals": data.get("opportunities", []),
-        "meta": data.get("meta", {}),
-    })
 
 
-@router.post("/api/ghl/tasks")
-async def ghl_tasks_create(body: TaskCreate, request: Request):
-    """Create a follow-up task in GHL."""
-    _verify_key(request)
-    payload = {
-        "title":       body.title,
-        "locationId":  GHL_LOC,
-        "dueDate":     body.due_date or date.today().isoformat(),
-        "assignedTo":  body.assigned_to,
-        "description": body.description,
-    }
-    if body.contact_id:
-        payload["contactId"] = body.contact_id
-    data = await _ghl_post("/tasks", payload)
-    return JSONResponse({"ok": True, "task": data.get("task", data)})
 
 
-@router.get("/api/ghl/tasks")
-async def ghl_tasks_today(request: Request):
-    """Due tasks for today."""
-    _verify_key(request)
-    today = date.today().isoformat()
-    data = await _ghl_get("/tasks", {
-        "locationId": GHL_LOC,
-        "dueDate": today,
-        "limit": 50,
-    })
-    return JSONResponse({
-        "ok": True,
-        "tasks": data.get("tasks", []),
-        "due_date": today,
-    })
 
 
-@router.get("/api/ghl/activity")
-async def ghl_activity(request: Request, limit: int = 20):
-    """Recent activity feed — last N contacts added (proxy for activity)."""
-    _verify_key(request)
-    data = await _ghl_get("/contacts", {
-        "locationId": GHL_LOC,
-        "limit": min(limit, 50),
-        "sortBy": "date_added",
-        "sortDirection": "desc",
-    })
-    contacts = data.get("contacts", [])
-    activity = []
-    for c in contacts:
-        activity.append({
-            "type": "contact_added",
-            "contact_id": c.get("id"),
-            "name": f"{c.get('firstName', '')} {c.get('lastName', '')}".strip(),
-            "email": c.get("email", ""),
-            "source": c.get("source", ""),
-            "timestamp": c.get("dateAdded", ""),
-            "tags": c.get("tags", []),
-        })
-    return JSONResponse({"ok": True, "activity": activity})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -583,46 +366,24 @@ async def ghl_activity(request: Request, limit: int = 20):
 @router.get("/api/dashboard/stats")
 async def dashboard_stats(request: Request, user_id: str = ""):
     """
-    Aggregate dashboard stats combining GHL + Supabase usage + profile data.
+    Aggregate dashboard stats combining Tha Saints CRM + Supabase usage + profile data.
     Returns everything the Headquarters page needs in one call.
     """
-    _verify_key(request)
-
-    # ── GHL data ──────────────────────────────────────────────────────────────
-    ghl_ok = bool(GHL_TOKEN)
-    total_contacts   = 0
-    pipelines_count  = 0
-    active_deals     = 0
-    revenue_mtd      = 0.0
-    tasks_due_today  = 0
-    recent_leads     = []
-    pipelines        = []
-
-    if ghl_ok:
-        try:
-            loc = GHL_LOC
-            c_data = await _ghl_get("/contacts", {"locationId": loc, "limit": 1})
-            total_contacts = c_data.get("meta", {}).get("total", 0)
-
-            p_data = await _ghl_get("/pipelines", {"locationId": loc})
-            pipelines = p_data.get("pipelines", [])
-            pipelines_count = len(pipelines)
-            for p in pipelines:
-                for s in p.get("stages", []):
-                    active_deals += s.get("opportunityCount", 0)
-                    revenue_mtd  += s.get("opportunityValue", 0)
-
-            r_data = await _ghl_get("/contacts", {
-                "locationId": loc, "limit": 5,
-                "sortBy": "date_added", "sortDirection": "desc",
-            })
-            recent_leads = r_data.get("contacts", [])
-
-            today = date.today().isoformat()
-            t_data = await _ghl_get("/tasks", {"locationId": loc, "dueDate": today, "limit": 50})
-            tasks_due_today = len(t_data.get("tasks", []))
-        except Exception as e:
-            print(f"[Dashboard] GHL error: {e}")
+    from routes.saints_crm import resolve_tenant, stats, search, SearchInput
+    tenant = await resolve_tenant(request)
+    if tenant.principal != "server":
+        if user_id and user_id != tenant.principal:
+            raise HTTPException(403, "This dashboard belongs to a different account.")
+        user_id = tenant.principal
+    crm = await stats(tenant)
+    total_contacts = crm["stats"]["total_contacts"]
+    pipelines = crm["pipelines"]
+    pipelines_count = len(pipelines)
+    active_deals = crm["stats"]["active_deals"]
+    revenue_mtd = crm["stats"]["revenue_mtd"]
+    tasks_due_today = crm["stats"]["tasks_due_today"]
+    recent_leads = (await search(tenant, SearchInput(limit=5)))["contacts"]
+    ghl_ok = True
 
     # ── Usage + billing ───────────────────────────────────────────────────────
     plan_tier           = "free"
