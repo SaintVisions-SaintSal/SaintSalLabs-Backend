@@ -34,6 +34,9 @@ app = FastAPI(
     version="2.0.0",
 )
 
+from routes.saints_crm import install_crm
+install_crm(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://www.saintsallabs.com", "https://saintsallabs.com"],
@@ -1225,7 +1228,7 @@ async def creative_image(request: Request):
 
 @app.post("/api/creative/social/post")
 async def creative_social_post(request: Request):
-    """Social posting via GHL."""
+    """Social posting via Tha Saints CRM."""
     verify_sal_key(request)
     body = await request.json()
     content = body.get("content", "")
@@ -1233,7 +1236,7 @@ async def creative_social_post(request: Request):
     schedule_time = body.get("schedule_time", None)
 
     if not GHL_PRIVATE_TOKEN:
-        return {"error": "GHL not configured", "post_ids": {}}
+        return {"error": "Tha Saints CRM not configured", "post_ids": {}}
 
     post_ids = {}
     try:
@@ -1302,7 +1305,7 @@ async def creative_brand_profile(request: Request):
 
 @app.post("/api/marketing/daily-content")
 async def marketing_daily_content(request: Request):
-    """GHL Social Studio daily content."""
+    """Tha Saints CRM Social Studio daily content."""
     verify_sal_key(request)
     body = await request.json()
 
@@ -1639,80 +1642,8 @@ async def cards_deals(request: Request = None):
 # SECTION 7: GHL + CRM
 # ══════════════════════════════════════════════════════════════════════════════
 
-@app.get("/api/ghl/stats")
-async def ghl_stats(request: Request):
-    """GHL pipeline stats for dashboard."""
-    verify_sal_key(request)
-
-    if not GHL_PRIVATE_TOKEN:
-        return {"pipelines": [], "recent_leads": [], "stats": {"total_contacts": 0}, "error": "GHL not configured"}
-
-    headers = {
-        "Authorization": f"Bearer {GHL_PRIVATE_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            pipelines_res = await client.get(
-                f"https://rest.gohighlevel.com/v1/pipelines?locationId={GHL_LOCATION_ID}",
-                headers=headers,
-            )
-            contacts_res = await client.get(
-                f"https://rest.gohighlevel.com/v1/contacts?locationId={GHL_LOCATION_ID}&limit=20&sortBy=dateAdded&order=desc",
-                headers=headers,
-            )
-            return {
-                "pipelines": pipelines_res.json().get("pipelines", []),
-                "recent_leads": contacts_res.json().get("contacts", [])[:10],
-                "stats": {
-                    "total_contacts": contacts_res.json().get("meta", {}).get("total", 0)
-                },
-            }
-    except Exception as e:
-        return {"pipelines": [], "recent_leads": [], "stats": {}, "error": str(e)}
 
 
-@app.post("/api/mcp/crm")
-async def mcp_crm(request: Request):
-    """GHL CRM actions — list_contacts, add_contact, get_pipeline."""
-    verify_sal_key(request)
-    body = await request.json()
-    action = body.get("action", "")
-
-    if not GHL_PRIVATE_TOKEN:
-        return {"error": "GHL not configured"}
-
-    headers = {"Authorization": f"Bearer {GHL_PRIVATE_TOKEN}"}
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            if action == "list_contacts":
-                res = await client.get(
-                    f"https://rest.gohighlevel.com/v1/contacts?locationId={GHL_LOCATION_ID}",
-                    headers=headers,
-                )
-                return res.json()
-
-            elif action == "add_contact":
-                res = await client.post(
-                    "https://rest.gohighlevel.com/v1/contacts",
-                    headers={**headers, "Content-Type": "application/json"},
-                    json={**body.get("contact", {}), "locationId": GHL_LOCATION_ID},
-                )
-                return res.json()
-
-            elif action == "get_pipeline":
-                res = await client.get(
-                    f"https://rest.gohighlevel.com/v1/pipelines?locationId={GHL_LOCATION_ID}",
-                    headers=headers,
-                )
-                return res.json()
-
-            else:
-                return {"error": f"Unknown action: {action}"}
-    except Exception as e:
-        return {"error": str(e)}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
